@@ -1,0 +1,4 @@
+.idea
+.vscode
+go-cover-view
+coverage.txt

@@ -1,0 +1,9 @@
+{
+  "extends": ["config:base"],
+  "postUpdateOptions": ["gomodTidy"],
+  "automerge": true,
+  "major": {
+    "automerge": false
+  },
+  "ignoreDeps": ["golang.org/x/tools"]
+}
