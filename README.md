@@ -63,14 +63,16 @@ go-cover-view
 ```
 
 ```
-package example
+example.com/example/example.go
+  1: package example
+  2: 
+O 3: func example() {
+O 4: 	println("covered")
+X 5: 	if false {
+X 6: 		println("not covered")
+  7: 	}
+  8: }
 
-<C>func example() {
-<C>     println("covered")
-<N>     if false {
-<N>             println("not covered")
-        }
-}
 ```
 
 ## Help
@@ -78,11 +80,13 @@ package example
 ```
 Usage of go-cover-view:
   -covered string
-        prefix for covered line (default "<C>")
+        prefix for covered line (default "O")
+  -json
+        json output
   -report string
         coverage report path (default "coverage.txt")
   -uncovered string
-        prefix for uncovered line (default "<N>")
+        prefix for uncovered line (default "X")
 ```
 
 ## License
