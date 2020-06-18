@@ -26,7 +26,7 @@ func setup(t *testing.T) string {
 		t.Fatal(err)
 	}
 
-	example := []byte(strings.TrimPrefix(`
+	example := []byte(strings.TrimSpace(`
 package example
 
 func example() bool {
@@ -36,12 +36,12 @@ func example() bool {
 	}
 	return true
 }
-`, "\n"))
+`))
 	if err := ioutil.WriteFile(filepath.Join(tmp, "example.go"), example, 0644); err != nil {
 		t.Fatal(err)
 	}
 
-	exampleTest := []byte(strings.TrimPrefix(`
+	exampleTest := []byte(strings.TrimSpace(`
 package example
 
 import "testing"
@@ -49,7 +49,7 @@ import "testing"
 func Test_example(t *testing.T) {
 	example()
 }
-`, "\n"))
+`))
 	if err := ioutil.WriteFile(filepath.Join(tmp, "example_test.go"), exampleTest, 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -57,59 +57,77 @@ func Test_example(t *testing.T) {
 	return tmp
 }
 
-func Test_main(t *testing.T) {
-	tmp := setup(t)
+func chdir(t *testing.T, tmp string) {
+	t.Helper()
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := os.Chdir(tmp); err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() {
+		if err := os.Chdir(wd); err != nil {
+			t.Fatal(err)
+		}
+	})
+}
 
+func Test_main(t *testing.T) {
+	tmp := setup(t)
 	if err := cmdRun(tmp, "go", "test", ".", "-v", "-cover", "-coverprofile", "coverage.txt"); err != nil {
 		t.Fatal(err)
 	}
 
-	t.Run("render", func(t *testing.T) {
+	t.Run("simple", func(t *testing.T) {
+		_want, err := ioutil.ReadFile("testdata/output.txt")
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := strings.TrimSpace(string(_want))
+		chdir(t, tmp)
 		var buf bytes.Buffer
 		w = &buf
 		t.Cleanup(func() {
 			w = os.Stdout
 		})
 		main()
-		want := strings.TrimPrefix(`
-example.com/example/example.go
-  1: package example
-  2: 
-O 3: func example() bool {
-O 4: 	println("covered")
-X 5: 	if false {
-X 6: 		println("not covered")
-X 7: 	}
-O 8: 	return true
-  9: }
-
-`, "\n")
-		assert.Equal(t, want, buf.String())
+		assert.Equal(t, want, strings.TrimSpace(buf.String()))
 	})
 
 	t.Run("json", func(t *testing.T) {
+		want, err := ioutil.ReadFile("testdata/output.json")
+		if err != nil {
+			t.Fatal(err)
+		}
+		chdir(t, tmp)
 		var buf bytes.Buffer
 		w = &buf
 		t.Cleanup(func() {
 			w = os.Stdout
 		})
-		_json = true
-		t.Cleanup(func() { _json = false })
+		output = "json"
+		t.Cleanup(func() { output = "" })
 		main()
-		// language=json
-		const want = `
-[
-  {
-    "fileName": "example.com/example/example.go",
-    "coveredLines": [3, 4, 8], 
-    "uncoveredLines": [5, 6, 7]
-  }
-]
-`
-		assert.JSONEq(t, want, buf.String())
+		assert.JSONEq(t, string(want), buf.String())
+	})
+
+	t.Run("markdown", func(t *testing.T) {
+		_want, err := ioutil.ReadFile("testdata/output.md")
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := strings.TrimSpace(string(_want))
+		chdir(t, tmp)
+		var buf bytes.Buffer
+		w = &buf
+		t.Cleanup(func() {
+			w = os.Stdout
+		})
+		output = "markdown"
+		t.Cleanup(func() { output = "" })
+		main()
+		assert.Equal(t, want, strings.TrimSpace(buf.String()))
 	})
 }
 
@@ -144,4 +162,36 @@ func Test_parseModfile(t *testing.T) {
 		}
 		assert.Equal(t, m.Path(), "example.com/example")
 	})
+}
+
+func Test_containsDiff(t *testing.T) {
+	tests := []struct {
+		name     string
+		filename string
+		path     string
+		diffs    []string
+		want     bool
+	}{
+		{
+			name:     "contains",
+			filename: "example.com/example/main.go",
+			path:     "example.com/example",
+			diffs:    []string{"a.go", "main.go"},
+			want:     true,
+		},
+		{
+			name:     "not contains",
+			filename: "example.com/example/main.go",
+			path:     "example.com/example",
+			diffs:    []string{"a.go", "b.go"},
+			want:     false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := containsDiff(tt.filename, tt.path, tt.diffs)
+			assert.Equal(t, tt.want, got)
+		})
+	}
 }

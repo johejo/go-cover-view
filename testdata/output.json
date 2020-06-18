@@ -1,0 +1,7 @@
+[
+  {
+    "fileName": "example.com/example/example.go",
+    "coveredLines": [3, 4, 8],
+    "uncoveredLines": [5, 6, 7]
+  }
+]

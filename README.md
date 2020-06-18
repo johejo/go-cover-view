@@ -80,7 +80,7 @@ O 8: 	return true
 json output
 
 ```sh
-go-cover-view -json
+go-cover-view -output json
 ```
 
 ```json
@@ -93,16 +93,45 @@ go-cover-view -json
 ]
 ```
 
+markdown output
+
+```sh
+go-cover-view -output markdown
+```
+
+```markdown
+# Coverage Report
+
+
+<details> <summary> example.com/example/example.go </summary>
+
+```
+  1: package example
+  2:
+O 3: func example() bool {
+O 4: 	println("covered")
+X 5: 	if false {
+X 6: 		println("not covered")
+X 7: 	}
+O 8: 	return true
+  9: }
+```
+
+</details>
+```
+
 ## Help
 
 ```
 Usage of go-cover-view:
   -covered string
         prefix for covered line (default "O")
-  -json
-        json output
+  -git-diff-only
+        only files with git diff
   -modfile string
         go.mod path
+  -output string
+        output type: available values "simple", "json", "markdown" (default "simple")
   -report string
         coverage report path (default "coverage.txt")
   -uncovered string

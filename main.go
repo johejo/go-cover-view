@@ -23,7 +23,10 @@ var (
 	report    string
 	covered   string
 	uncovered string
-	_json     bool
+
+	output string
+
+	gitDiffOnly bool
 
 	w io.Writer = os.Stdout
 )
@@ -55,7 +58,10 @@ func init() {
 	flag.StringVar(&report, "report", "coverage.txt", "coverage report path")
 	flag.StringVar(&covered, "covered", "O", "prefix for covered line")
 	flag.StringVar(&uncovered, "uncovered", "X", "prefix for uncovered line")
-	flag.BoolVar(&_json, "json", false, "json output")
+
+	flag.StringVar(&output, "output", "simple", `output type: available values "simple", "json", "markdown"`)
+
+	flag.BoolVar(&gitDiffOnly, "git-diff-only", false, "only files with git diff")
 }
 
 func main() {
@@ -65,10 +71,30 @@ func main() {
 	}
 }
 
-type result struct {
-	FileName       string `json:"fileName"`
-	CoveredLines   []int  `json:"coveredLines"`
-	UncoveredLines []int  `json:"uncoveredLines"`
+func _main() error {
+	m, err := parseModfile()
+	if err != nil {
+		return err
+	}
+
+	profiles, err := cover.ParseProfiles(report)
+	if err != nil {
+		return err
+	}
+
+	var r renderer
+	switch output {
+	case "", "simple":
+		r = &simpleRenderer{}
+	case "json":
+		r = &jsonRenderer{}
+	case "markdown":
+		r = &markdownRenderer{}
+	default:
+		return fmt.Errorf("invalid output type %s", output)
+	}
+
+	return r.Render(w, profiles, m.Path())
 }
 
 func parseModfile() (_modfile, error) {
@@ -96,56 +122,6 @@ func parseModfile() (_modfile, error) {
 	return &xmodfile{File: f}, nil
 }
 
-func _main() error {
-	m, err := parseModfile()
-	if err != nil {
-		return err
-	}
-
-	profiles, err := cover.ParseProfiles(report)
-	if err != nil {
-		return err
-	}
-
-	if _json {
-		results := make([]result, 0, len(profiles))
-		for _, profile := range profiles {
-			lines, err := getLines(profile, m.Path())
-			if err != nil {
-				return err
-			}
-			coveredLines := make([]int, 0, len(lines))
-			uncoveredLines := make([]int, 0, len(lines))
-			for i, line := range lines {
-				switch {
-				case strings.HasPrefix(line, covered):
-					coveredLines = append(coveredLines, i+1)
-				case strings.HasPrefix(line, uncovered):
-					uncoveredLines = append(uncoveredLines, i+1)
-				}
-			}
-			results = append(results, result{
-				FileName:       profile.FileName,
-				CoveredLines:   coveredLines,
-				UncoveredLines: uncoveredLines,
-			})
-		}
-		return json.NewEncoder(w).Encode(results)
-	}
-
-	buf := bufio.NewWriter(w)
-	for _, profile := range profiles {
-		lines, err := getLines(profile, m.Path())
-		if err != nil {
-			return err
-		}
-		fmt.Fprintln(buf, profile.FileName)
-		fmt.Fprintln(buf, strings.Join(lines, "\n"))
-		fmt.Fprintln(buf)
-	}
-	return buf.Flush()
-}
-
 func getLines(profile *cover.Profile, module string) ([]string, error) {
 	// github.com/johejo/go-cover-view/main.go -> ./main.go
 	p := strings.ReplaceAll(profile.FileName, module, ".")
@@ -170,8 +146,14 @@ func getLines(profile *cover.Profile, module string) ([]string, error) {
 	}
 	w := strconv.Itoa(width)
 	for i, line := range lines {
-		format := "%" + w + "d: %s"
-		newLine := fmt.Sprintf(format, i+1, line)
+		var newLine string
+		if len(line) == 0 {
+			format := "%" + w + "d:"
+			newLine = fmt.Sprintf(format, i+1)
+		} else {
+			format := "%" + w + "d: %s"
+			newLine = fmt.Sprintf(format, i+1, line)
+		}
 		lines[i] = newLine
 	}
 
@@ -193,4 +175,83 @@ func getLines(profile *cover.Profile, module string) ([]string, error) {
 	}
 
 	return lines, nil
+}
+
+func getDiffs() ([]string, error) {
+	if !gitDiffOnly {
+		return []string{}, nil
+	}
+	_out, err := exec.Command("git", "diff", "--name-only").Output()
+	if err != nil {
+		return nil, err
+	}
+	out := strings.TrimSpace(string(_out))
+	diffs := strings.Split(out, "\n")
+	return diffs, nil
+}
+
+func containsDiff(filename, path string, diffs []string) bool {
+	for _, diff := range diffs {
+		name := fmt.Sprintf("%s/%s", path, diff)
+		if filename == name {
+			return true
+		}
+	}
+	return false
+}
+
+type renderer interface {
+	Render(w io.Writer, profiles []*cover.Profile, path string) error
+}
+
+type simpleRenderer struct{}
+
+var _ renderer = (*simpleRenderer)(nil)
+
+func (r *simpleRenderer) Render(w io.Writer, profiles []*cover.Profile, path string) error {
+	reports, err := getSimpleReports(profiles, path)
+	if err != nil {
+		return err
+	}
+	bw := bufio.NewWriter(w)
+	for _, r := range reports {
+		fmt.Fprintln(bw, r.FileName)
+		fmt.Fprintln(bw, r.Report)
+		fmt.Fprintln(bw)
+	}
+	return bw.Flush()
+}
+
+type simpleReport struct {
+	FileName string
+	Report   string
+}
+
+func newSimpleReport(fileName string, lines []string) *simpleReport {
+	return &simpleReport{
+		FileName: fileName,
+		Report:   strings.Join(lines, "\n"),
+	}
+}
+
+func getSimpleReports(profiles []*cover.Profile, path string) ([]*simpleReport, error) {
+	diffs, err := getDiffs()
+	if err != nil {
+		return nil, err
+	}
+	results := make([]*simpleReport, 0, len(profiles))
+	for _, profile := range profiles {
+		lines, err := getLines(profile, path)
+		if err != nil {
+			return nil, err
+		}
+		if gitDiffOnly {
+			if containsDiff(profile.FileName, path, diffs) {
+				results = append(results, newSimpleReport(profile.FileName, lines))
+			}
+			continue
+		}
+		results = append(results, newSimpleReport(profile.FileName, lines))
+	}
+	return results, nil
 }
