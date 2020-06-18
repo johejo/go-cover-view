@@ -12,7 +12,8 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func Test_main(t *testing.T) {
+func setup(t *testing.T) string {
+	t.Helper()
 	tmp, err := ioutil.TempDir("", "")
 	if err != nil {
 		t.Fatal(err)
@@ -30,11 +31,12 @@ func Test_main(t *testing.T) {
 	example := []byte(strings.TrimPrefix(`
 package example
 
-func example() {
+func example() bool {
 	println("covered")
 	if false {
 		println("not covered")
 	}
+	return true
 }
 `, "\n"))
 	if err := ioutil.WriteFile(filepath.Join(tmp, "example.go"), example, 0644); err != nil {
@@ -54,14 +56,20 @@ func Test_example(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	return tmp
+}
+
+func Test_main(t *testing.T) {
+	tmp := setup(t)
+	if err := os.Chdir(tmp); err != nil {
+		t.Fatal(err)
+	}
+
 	if err := cmdRun(tmp, "go", "test", ".", "-v", "-cover", "-coverprofile", "coverage.txt"); err != nil {
 		t.Fatal(err)
 	}
 
 	t.Run("render", func(t *testing.T) {
-		if err := os.Chdir(tmp); err != nil {
-			t.Fatal(err)
-		}
 		var buf bytes.Buffer
 		w = &buf
 		t.Cleanup(func() {
@@ -74,31 +82,40 @@ func Test_example(t *testing.T) {
 example.com/example/example.go
   1: package example
   2: 
-O 3: func example() {
+O 3: func example() bool {
 O 4: 	println("covered")
 X 5: 	if false {
 X 6: 		println("not covered")
-  7: 	}
-  8: }
+X 7: 	}
+O 8: 	return true
+  9: }
 
 `, "\n")
 		assert.Equal(t, want, buf.String())
 	})
 
 	t.Run("json", func(t *testing.T) {
-		if err := os.Chdir(tmp); err != nil {
-			t.Fatal(err)
-		}
 		var buf bytes.Buffer
 		w = &buf
 		t.Cleanup(func() {
 			w = os.Stdout
 		})
 		_json = true
+		t.Cleanup(func() { _json = false })
 		if err := _main(); err != nil {
 			t.Fatal(err)
 		}
-		assert.JSONEq(t, `{"example.com/example/example.go": {"coveredLines": [3, 4], "uncoveredLines": [5, 6]}}`, buf.String())
+		// language=json
+		const want = `
+[
+  {
+    "fileName": "example.com/example/example.go",
+    "coveredLines": [3, 4, 8], 
+    "uncoveredLines": [5, 6, 7]
+  }
+]
+`
+		assert.JSONEq(t, want, buf.String())
 	})
 }
 
@@ -108,4 +125,29 @@ func cmdRun(dir, name string, args ...string) error {
 	cmd.Stdout = os.Stdout
 	cmd.Dir = dir
 	return cmd.Run()
+}
+
+func Test_parseModfile(t *testing.T) {
+	tmp := setup(t)
+	if err := os.Chdir(tmp); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("empty", func(t *testing.T) {
+		m, err := parseModfile()
+		if err != nil {
+			t.Fatal(err)
+		}
+		assert.Equal(t, m.Path(), "example.com/example")
+	})
+
+	t.Run("specified", func(t *testing.T) {
+		modFile = "./go.mod"
+		t.Cleanup(func() { modFile = "" })
+		m, err := parseModfile()
+		if err != nil {
+			t.Fatal(err)
+		}
+		assert.Equal(t, m.Path(), "example.com/example")
+	})
 }
