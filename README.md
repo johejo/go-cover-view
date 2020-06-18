@@ -133,9 +133,6 @@ on:
   pull_request:
     branches:
       - master
-  push:
-    branches:
-      - master
 jobs:
   test:
     strategy:
