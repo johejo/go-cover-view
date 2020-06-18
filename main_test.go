@@ -20,9 +20,7 @@ func setup(t *testing.T) string {
 	}
 	t.Logf("tmp=%s", tmp)
 	t.Cleanup(func() {
-		if err := os.RemoveAll(tmp); err != nil {
-			t.Fatal(err)
-		}
+		os.RemoveAll(tmp)
 	})
 	if err := cmdRun(tmp, "go", "mod", "init", "example.com/example"); err != nil {
 		t.Fatal(err)
