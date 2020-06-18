@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -57,13 +58,13 @@ func Test_example(t *testing.T) {
 	return tmp
 }
 
-func chdir(t *testing.T, tmp string) {
+func chdir(t *testing.T, dir string) {
 	t.Helper()
 	wd, err := os.Getwd()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Chdir(tmp); err != nil {
+	if err := os.Chdir(dir); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
@@ -78,33 +79,29 @@ func Test_main(t *testing.T) {
 	if err := cmdRun(tmp, "go", "test", ".", "-v", "-cover", "-coverprofile", "coverage.txt"); err != nil {
 		t.Fatal(err)
 	}
+	if err := cmdRun(tmp, "git", "init"); err != nil {
+		t.Fatal(err)
+	}
 
 	t.Run("simple", func(t *testing.T) {
-		_want, err := ioutil.ReadFile("testdata/output.txt")
-		if err != nil {
-			t.Fatal(err)
-		}
-		want := strings.TrimSpace(string(_want))
+		want := readFileString(t, "testdata/output.txt")
 		chdir(t, tmp)
 		var buf bytes.Buffer
-		w = &buf
+		writer = &buf
 		t.Cleanup(func() {
-			w = os.Stdout
+			writer = os.Stdout
 		})
 		main()
 		assert.Equal(t, want, strings.TrimSpace(buf.String()))
 	})
 
 	t.Run("json", func(t *testing.T) {
-		want, err := ioutil.ReadFile("testdata/output.json")
-		if err != nil {
-			t.Fatal(err)
-		}
+		want := readFileString(t, "testdata/output.json")
 		chdir(t, tmp)
 		var buf bytes.Buffer
-		w = &buf
+		writer = &buf
 		t.Cleanup(func() {
-			w = os.Stdout
+			writer = os.Stdout
 		})
 		output = "json"
 		t.Cleanup(func() { output = "" })
@@ -113,22 +110,43 @@ func Test_main(t *testing.T) {
 	})
 
 	t.Run("markdown", func(t *testing.T) {
-		_want, err := ioutil.ReadFile("testdata/output.md")
-		if err != nil {
-			t.Fatal(err)
-		}
-		want := strings.TrimSpace(string(_want))
+		want := readFileString(t, "testdata/output.md")
 		chdir(t, tmp)
 		var buf bytes.Buffer
-		w = &buf
+		writer = &buf
 		t.Cleanup(func() {
-			w = os.Stdout
+			writer = os.Stdout
 		})
 		output = "markdown"
 		t.Cleanup(func() { output = "" })
 		main()
 		assert.Equal(t, want, strings.TrimSpace(buf.String()))
 	})
+
+	t.Run("github-actions pull request comment", func(t *testing.T) {
+		if testing.Short() {
+			t.Skip()
+		}
+		if ci, _ := strconv.ParseBool(os.Getenv("CI")); !ci {
+			t.Skip()
+		}
+		if commentTest, _ := strconv.ParseBool(os.Getenv("PULL_REQUEST_COMMENT_TEST")); !commentTest {
+			t.Skip()
+		}
+		ci = "github-actions"
+		gitDiffBase = ""
+		t.Cleanup(func() { ci = ""; gitDiffBase = "origin/master" })
+		main()
+	})
+}
+
+func readFileString(t *testing.T, filename string) string {
+	t.Helper()
+	_want, err := ioutil.ReadFile(filename)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return strings.ReplaceAll(strings.TrimSpace(string(_want)), "\r\n", "\n")
 }
 
 func cmdRun(dir, name string, args ...string) error {

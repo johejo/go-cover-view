@@ -1,4 +1,4 @@
-# Coverage Report
+# go-cover-view
 
 
 <details> <summary> example.com/example/example.go </summary>

@@ -27,6 +27,16 @@ jobs:
       - uses: actions/setup-go@v2
         with:
           go-version: ${{ matrix.go }}
-      - run: |
+      - name: "test"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PULL_REQUEST_COMMENT_TEST: true
+        run: |
           go test -cover -coverprofile coverage.txt -race -v ./...
+      - name: "pull request comment"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git fetch origin master
+          go run . -ci github-actions
       - uses: codecov/codecov-action@v1
