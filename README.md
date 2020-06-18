@@ -29,11 +29,12 @@ example.go
 ```go
 package example
 
-func example() {
+func example() bool {
 	println("covered")
 	if false {
 		println("not covered")
 	}
+	return true
 }
 ```
 
@@ -66,13 +67,30 @@ go-cover-view
 example.com/example/example.go
   1: package example
   2: 
-O 3: func example() {
+O 3: func example() bool {
 O 4: 	println("covered")
 X 5: 	if false {
 X 6: 		println("not covered")
-  7: 	}
-  8: }
+X 7: 	}
+O 8: 	return true
+  9: }
 
+```
+
+json output
+
+```sh
+go-cover-view -json
+```
+
+```json
+[
+  {
+    "fileName": "example.com/example/example.go",
+    "coveredLines": [3, 4, 8], 
+    "uncoveredLines": [5, 6, 7]
+  }
+]
 ```
 
 ## Help
@@ -83,6 +101,8 @@ Usage of go-cover-view:
         prefix for covered line (default "O")
   -json
         json output
+  -modfile string
+        go.mod path
   -report string
         coverage report path (default "coverage.txt")
   -uncovered string

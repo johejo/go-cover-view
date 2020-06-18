@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"log"
 	"math"
 	"os"
@@ -13,10 +14,12 @@ import (
 	"strconv"
 	"strings"
 
+	"golang.org/x/mod/modfile"
 	"golang.org/x/tools/cover"
 )
 
 var (
+	modFile   string
 	report    string
 	covered   string
 	uncovered string
@@ -25,13 +28,30 @@ var (
 	w io.Writer = os.Stdout
 )
 
-type modfile struct {
+type _modfile interface {
+	Path() string
+}
+
+type modfileFromJSON struct {
 	Module struct {
 		Path string
 	}
 }
 
+func (m *modfileFromJSON) Path() string {
+	return m.Module.Path
+}
+
+type xmodfile struct {
+	*modfile.File
+}
+
+func (m *xmodfile) Path() string {
+	return m.Module.Mod.Path
+}
+
 func init() {
+	flag.StringVar(&modFile, "modfile", "", "go.mod path")
 	flag.StringVar(&report, "report", "coverage.txt", "coverage report path")
 	flag.StringVar(&covered, "covered", "O", "prefix for covered line")
 	flag.StringVar(&uncovered, "uncovered", "X", "prefix for uncovered line")
@@ -46,18 +66,39 @@ func main() {
 }
 
 type result struct {
-	CoveredLines   []int `json:"coveredLines"`
-	UncoveredLines []int `json:"uncoveredLines"`
+	FileName       string `json:"fileName"`
+	CoveredLines   []int  `json:"coveredLines"`
+	UncoveredLines []int  `json:"uncoveredLines"`
+}
+
+func parseModfile() (_modfile, error) {
+	if modFile == "" {
+		output, err := exec.Command("go", "mod", "edit", "-json").Output()
+		if err != nil {
+			return nil, fmt.Errorf("go mod edit -json: %w", err)
+		}
+		var m modfileFromJSON
+		if err := json.Unmarshal(output, &m); err != nil {
+			return nil, err
+		}
+		return &m, nil
+	}
+
+	data, err := ioutil.ReadFile(modFile)
+	if err != nil {
+		return nil, err
+	}
+
+	f, err := modfile.Parse(modFile, data, nil)
+	if err != nil {
+		return nil, err
+	}
+	return &xmodfile{File: f}, nil
 }
 
 func _main() error {
-	output, err := exec.Command("go", "mod", "edit", "-json").Output()
+	m, err := parseModfile()
 	if err != nil {
-		return err
-	}
-
-	var m modfile
-	if err := json.Unmarshal(output, &m); err != nil {
 		return err
 	}
 
@@ -65,13 +106,14 @@ func _main() error {
 	if err != nil {
 		return err
 	}
-	results := make(map[string]result, len(profiles))
-	for _, profile := range profiles {
-		lines, err := getLines(profile, m.Module.Path)
-		if err != nil {
-			return err
-		}
-		if _json {
+
+	if _json {
+		results := make([]result, 0, len(profiles))
+		for _, profile := range profiles {
+			lines, err := getLines(profile, m.Path())
+			if err != nil {
+				return err
+			}
 			coveredLines := make([]int, 0, len(lines))
 			uncoveredLines := make([]int, 0, len(lines))
 			for i, line := range lines {
@@ -82,24 +124,31 @@ func _main() error {
 					uncoveredLines = append(uncoveredLines, i+1)
 				}
 			}
-			results[profile.FileName] = result{
+			results = append(results, result{
+				FileName:       profile.FileName,
 				CoveredLines:   coveredLines,
 				UncoveredLines: uncoveredLines,
-			}
-			continue
+			})
 		}
-		fmt.Fprintln(w, profile.FileName)
-		fmt.Fprintln(w, strings.Join(lines, "\n"))
-		fmt.Fprintln(w)
-	}
-	if _json {
 		return json.NewEncoder(w).Encode(results)
 	}
-	return nil
+
+	buf := bufio.NewWriter(w)
+	for _, profile := range profiles {
+		lines, err := getLines(profile, m.Path())
+		if err != nil {
+			return err
+		}
+		fmt.Fprintln(buf, profile.FileName)
+		fmt.Fprintln(buf, strings.Join(lines, "\n"))
+		fmt.Fprintln(buf)
+	}
+	return buf.Flush()
 }
 
 func getLines(profile *cover.Profile, module string) ([]string, error) {
-	p := strings.TrimPrefix(profile.FileName, module+"/")
+	// github.com/johejo/go-cover-view/main.go -> ./main.go
+	p := strings.ReplaceAll(profile.FileName, module, ".")
 	f, err := os.Open(p)
 	if err != nil {
 		return nil, err
@@ -133,7 +182,7 @@ func getLines(profile *cover.Profile, module string) ([]string, error) {
 		} else {
 			prefix = uncovered
 		}
-		for i := block.StartLine - 1; i < block.EndLine-1; i++ {
+		for i := block.StartLine - 1; i <= block.EndLine-1; i++ {
 			if i >= len(lines) {
 				return nil, fmt.Errorf("invalid line length: index=%d, len(lines)=%d", i, len(lines))
 			}
