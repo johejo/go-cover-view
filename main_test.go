@@ -73,9 +73,7 @@ func Test_main(t *testing.T) {
 		t.Cleanup(func() {
 			w = os.Stdout
 		})
-		if err := _main(); err != nil {
-			t.Fatal(err)
-		}
+		main()
 		want := strings.TrimPrefix(`
 example.com/example/example.go
   1: package example
@@ -100,9 +98,7 @@ O 8: 	return true
 		})
 		_json = true
 		t.Cleanup(func() { _json = false })
-		if err := _main(); err != nil {
-			t.Fatal(err)
-		}
+		main()
 		// language=json
 		const want = `
 [
