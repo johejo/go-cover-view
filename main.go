@@ -25,10 +25,12 @@ var (
 	uncovered string
 
 	output string
+	ci     string
 
 	gitDiffOnly bool
+	gitDiffBase string
 
-	w io.Writer = os.Stdout
+	writer io.Writer = os.Stdout
 )
 
 type _modfile interface {
@@ -60,8 +62,14 @@ func init() {
 	flag.StringVar(&uncovered, "uncovered", "X", "prefix for uncovered line")
 
 	flag.StringVar(&output, "output", "simple", `output type: available values "simple", "json", "markdown"`)
+	flag.StringVar(&ci, "ci", "", strings.TrimSpace(`
+ci type: available values "", "github-actions"
+github-actions:
+	Comment the markdown report to Pull Request on GitHub.
+`))
 
 	flag.BoolVar(&gitDiffOnly, "git-diff-only", false, "only files with git diff")
+	flag.StringVar(&gitDiffBase, "git-diff-base", "origin/master", "git diff base")
 }
 
 func main() {
@@ -82,6 +90,12 @@ func _main() error {
 		return err
 	}
 
+	switch ci {
+	case "github-actions":
+		gitDiffOnly = true
+		return upsertGitHubPullRequestComment(profiles, m.Path())
+	}
+
 	var r renderer
 	switch output {
 	case "", "simple":
@@ -94,7 +108,7 @@ func _main() error {
 		return fmt.Errorf("invalid output type %s", output)
 	}
 
-	return r.Render(w, profiles, m.Path())
+	return r.Render(writer, profiles, m.Path())
 }
 
 func parseModfile() (_modfile, error) {
@@ -181,7 +195,11 @@ func getDiffs() ([]string, error) {
 	if !gitDiffOnly {
 		return []string{}, nil
 	}
-	_out, err := exec.Command("git", "diff", "--name-only").Output()
+	args := []string{"diff", "--name-only"}
+	if gitDiffBase != "" {
+		args = append(args, gitDiffBase)
+	}
+	_out, err := exec.Command("git", args...).Output()
 	if err != nil {
 		return nil, err
 	}

@@ -74,7 +74,6 @@ X 6: 		println("not covered")
 X 7: 	}
 O 8: 	return true
   9: }
-
 ```
 
 json output
@@ -120,12 +119,63 @@ O 8: 	return true
 </details>
 ```
 
+## GitHub Actions Integration
+
+Pull Request comment with markdown report
+
+![Screenshot](https://user-images.githubusercontent.com/25817501/85069957-f1c8f300-b1ef-11ea-9ea3-7200e26483da.png)
+
+GitHub Actions workflow example
+
+```yaml
+name: ci
+on:
+  pull_request:
+    branches:
+      - master
+  push:
+    branches:
+      - master
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest]
+        go: ["1.14"]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/setup-go@v2
+        with:
+          go-version: ${{ matrix.go }}
+
+      - name: "test"
+        run: |
+          go test -cover -coverprofile coverage.txt -race -v ./...
+
+      - name: "pull request comment"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git fetch origin master
+          go get github.com/johejo/go-cover-view
+          go install github.com/johejo/go-cover-view
+          go-cover-view -ci github-actions -git-diff-base origin/master
+```
+
 ## Help
 
 ```
 Usage of go-cover-view:
+  -ci string
+        ci type: available values "", "github-actions"
+        github-actions:
+                Comment the markdown report to Pull Request on GitHub.
   -covered string
         prefix for covered line (default "O")
+  -git-diff-base string
+        git diff base (default "origin/master")
   -git-diff-only
         only files with git diff
   -modfile string
