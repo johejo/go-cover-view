@@ -6,6 +6,6 @@ require (
 	github.com/google/go-github/v32 v32.1.0
 	github.com/stretchr/testify v1.7.0
 	golang.org/x/mod v0.4.2
-	golang.org/x/oauth2 v0.0.0-20210622165204-14747e66f690
+	golang.org/x/oauth2 v0.0.0-20210622190553-bce0382f6c22
 	golang.org/x/tools v0.0.0-20200825202427-b303f430e36d
 )
